@@ -382,6 +382,7 @@ class GitHubAnalyzer:
             },
             'languages': language_stats,
             'org_contributions': org_contributions,
+            'repo_names': [stats['name'] for stats in repo_map.values()], # Quiz için repo isimleri
             'has_private_contributions': any(r.get('is_private', False) for r in repo_map.values())
         }
         

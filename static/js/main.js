@@ -224,10 +224,20 @@ function generateQuiz(data) {
     // Soru 2
     if (topRepos.most_commits && topRepos.most_commits.count > 0) {
         const correctRepo = topRepos.most_commits.name;
-        const repoOptions = [correctRepo];
-        if (topRepos.most_prs && topRepos.most_prs.name !== correctRepo) repoOptions.push(topRepos.most_prs.name);
-        if (topRepos.longest_contribution && topRepos.longest_contribution.name !== correctRepo && repoOptions.length < 3) repoOptions.push(topRepos.longest_contribution.name);
-        while (repoOptions.length < 4) repoOptions.push(`Repo-${repoOptions.length}`);
+        
+        // Yanlış cevapları gerçek repo isimlerinden seç
+        const allRepoNames = data.repo_names || [];
+        const distractors = allRepoNames
+            .filter(name => name !== correctRepo) // Doğru cevabı çıkar
+            .sort(() => 0.5 - Math.random())      // Karıştır
+            .slice(0, 3);                         // İlk 3 tanesini al
+            
+        const repoOptions = [correctRepo, ...distractors];
+        
+        // Eğer yeterince gerçek repo yoksa (örn: kullanıcının sadece 1 reposu varsa), placeholder ekle
+        while (repoOptions.length < 4) {
+            repoOptions.push(`Repo-${repoOptions.length}`);
+        }
         
         quizQuestions.push({
             question: t.q2,
