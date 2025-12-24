@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Wrapped 2025</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Settings Bar -->
+        <div class="settings-bar">
+            <div class="theme-toggle" onclick="toggleTheme()">
+                <span id="theme-icon">🌙</span>
+                <span id="theme-text">Dark</span>
+            </div>
+            <div class="lang-toggle" onclick="toggleLanguage()">
+                <span id="lang-icon">🇬🇧</span>
+                <span id="lang-text">EN</span>
+            </div>
+        </div>
+
+        <div id="input-section" class="section">
+            <div class="header">
+                <h1 class="title">
+                    <svg height="32" width="32" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+                </h1>
+                <p class="subtitle">2025 yılındaki GitHub aktivitelerinizi keşfedin</p>
+            </div>
+            <div class="input-container">
+                <input type="text" id="username-input" placeholder="GitHub kullanıcı adı" class="username-input">
+                <button id="analyze-btn" class="analyze-btn">
+                    <span class="btn-text">Analiz Et</span>
+                    <span class="btn-loader" style="display:none;"><span class="loader"></span></span>
+                </button>
+            </div>
+            <div id="error-message" class="error-message" style="display:none;"></div>
+            <div class="examples"><p>Örnek: 4ni1ak, torvalds</p></div>
+        </div>
+
+        <div id="loading-section" class="section" style="display:none;">
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <p class="loading-text">Veriler analiz ediliyor...</p>
+            </div>
+        </div>
+
+        <div id="results-section" class="section" style="display:none;">
+            <div class="user-header">
+                <img id="user-avatar" class="user-avatar">
+                <div class="user-info">
+                    <h2 id="user-name" class="user-name"></h2>
+                    <p id="user-username" class="user-username"></p>
+                </div>
+            </div>
+            <div id="private-notice" class="private-notice" style="display:none;"><span class="notice-text"></span></div>
+            
+            <!-- Quiz Section - Comes First -->
+            <div id="quiz-section" class="quiz-container" style="display: none;">
+                <div class="quiz-card">
+                    <div class="quiz-header">
+                        <h2 class="quiz-title">🎯 Tahmin Et!</h2>
+                        <div class="quiz-progress"><span id="quiz-current">1</span> / 3</div>
+                    </div>
+                    <div class="quiz-question" id="quiz-question"></div>
+                    <div class="quiz-options" id="quiz-options"></div>
+                    <div class="quiz-result" id="quiz-result" style="display: none;"></div>
+                    <button class="quiz-btn" id="quiz-next-btn" onclick="nextQuizQuestion()" style="display: none;">Devam Et →</button>
+                </div>
+            </div>
+
+            <div class="results-title" style="display: none;"><h1>2025 GitHub Özetiniz</h1><p>İşte tüm istatistikleriniz!</p></div>
+            
+            <div class="visibility-controls" style="display: none;">
+                <button class="toggle-btn" onclick="toggleAllSections(false)">Tümünü Gizle</button>
+                <button class="toggle-btn" onclick="toggleAllSections(true)">Tümünü Göster</button>
+            </div>
+
+            <!-- Persona Section -->
+            <div id="persona-section" class="section-card persona-card" style="display: none; margin-bottom: 20px;">
+                <div class="persona-content">
+                    <div class="persona-icon" id="persona-icon"></div>
+                    <div class="persona-info">
+                        <h2 class="persona-title" id="persona-title"></h2>
+                        <p class="persona-desc" id="persona-desc"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sect-hero" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-hero')"><h3>📊 Ana İstatistikler</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content">
+                    <div class="hero-stats">
+                        <div class="stat-card main"><div class="stat-number" id="total-commits">0</div><div class="stat-label">Toplam Katkı</div></div>
+                        <div class="stat-card"><div class="stat-number" id="total-repos">0</div><div class="stat-label">Proje</div></div>
+                        <div class="stat-card"><div class="stat-number" id="active-days">0</div><div class="stat-label">Aktif Gün</div></div>
+                        <div class="stat-card"><div class="stat-number" id="longest-streak">0</div><div class="stat-label">En Uzun Seri</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sect-activity" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-activity')"><h3>📈 Aktivite Dağılımı</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content">
+                    <div class="section-card">
+                        <div class="activity-grid-5">
+                            <div class="activity-item"><span class="activity-icon">💻</span><span class="activity-label">Commit</span><span class="activity-count" id="activity-commits">0</span></div>
+                            <div class="activity-item"><span class="activity-icon">🔀</span><span class="activity-label">Pull Request</span><span class="activity-count" id="activity-prs">0</span></div>
+                            <div class="activity-item"><span class="activity-icon">🔄</span><span class="activity-label">Merge</span><span class="activity-count" id="activity-merges">0</span></div>
+                            <div class="activity-item"><span class="activity-icon">📝</span><span class="activity-label">Issue</span><span class="activity-count" id="activity-issues">0</span></div>
+                            <div class="activity-item"><span class="activity-icon">👀</span><span class="activity-label">Review</span><span class="activity-count" id="activity-reviews">0</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sect-top" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-top')"><h3>🏆 En Aktif Projeler</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content"><div class="section-card"><div id="top-repos-container" class="top-repos-grid"></div></div></div>
+            </div>
+
+            <div id="sect-stars" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-stars')"><h3>⭐ Star & Fork</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content">
+                    <div class="section-card">
+                        <div class="stars-forks-grid">
+                            <div class="stat-box"><div class="stat-icon">🔄</div><div class="stat-value" id="stars-received">0</div><div class="stat-desc">Merge</div></div>
+                            <div class="stat-box"><div class="stat-icon">🍴</div><div class="stat-value" id="forks-received">0</div><div class="stat-desc">Aldığınız Fork</div></div>
+                            <div class="stat-box"><div class="stat-icon">📦</div><div class="stat-value" id="repos-created">0</div><div class="stat-desc">Oluşturulan</div></div>
+                            <div class="stat-box"><div class="stat-icon">🔱</div><div class="stat-value" id="repos-forked">0</div><div class="stat-desc">Fork Edilen</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sect-created" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-created')"><h3>🆕 2025'te Oluşturulan</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content"><div class="section-card"><div id="created-repos-container"></div></div></div>
+            </div>
+
+            <div id="sect-org" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-org')"><h3>🏢 Organizasyon Katkıları</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content"><div class="section-card"><div id="org-container"></div></div></div>
+            </div>
+
+            <div id="sect-commits" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-commits')"><h3>💬 Commit Mesajları</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content"><div class="section-card"><div id="commit-messages-container"></div></div></div>
+            </div>
+
+            <div id="sect-langs" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-langs')"><h3>🔤 2025'te Kullanılan Diller</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content"><div class="section-card"><div id="languages-container"></div></div></div>
+            </div>
+
+            <div id="sect-monthly" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-monthly')"><h3>📅 Aylık Aktivite</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content"><div class="section-card"><div id="monthly-chart" class="monthly-chart"></div></div></div>
+            </div>
+
+            <div id="sect-split" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-split')"><h3>🎯 Katkı Dağılımı</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content">
+                    <div class="section-card">
+                        <div class="contribution-split">
+                            <div class="contribution-item"><div class="contribution-label">Kendi Projelerim</div><div class="contribution-value" id="own-commits">0</div></div>
+                            <div class="contribution-item"><div class="contribution-label">Diğer Projeler</div><div class="contribution-value" id="others-commits">0</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Stats Section -->
+            <div id="sect-summary" class="collapsible-section">
+                <div class="section-header" onclick="toggleSection('sect-summary')"><h3>📊 Tüm İstatistikler</h3><span class="toggle-icon">▼</span></div>
+                <div class="section-content">
+                    <div class="section-card">
+                        <div id="summary-stats" class="summary-grid"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Social Share Section -->
+            <div class="social-share-section">
+                <h3 class="share-title">📤 Paylaş ve Destek Ol</h3>
+                <div class="share-buttons">
+                    <button class="share-btn twitter" onclick="shareOnTwitter()">
+                        <span class="share-icon">✖️</span> X'te Paylaş
+                    </button>
+                    <button class="share-btn linkedin" onclick="shareOnLinkedIn()">
+                        <span class="share-icon">💼</span> LinkedIn'de Paylaş
+                    </button>
+                    <button class="share-btn copy" onclick="copyShareLink()">
+                        <span class="share-icon">🔗</span> Linki Kopyala
+                    </button>
+                </div>
+                <div class="support-section">
+                    <p class="support-text">Bu projeyi beğendiniz mi?</p>
+                    <div class="support-buttons">
+                        <a href="https://github.com/4ni1ak/gitwrap" target="_blank" class="support-btn github">
+                            <span>⭐</span> GitHub'da Star Ver
+                        </a>
+                        <a href="https://github.com/4ni1ak" target="_blank" class="support-btn projects">
+                            <span>💼</span> Diğer Projelerim
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer">
+                <button id="new-search-btn" class="new-search-btn">Yeni Arama</button>
+                <p class="made-with">Made with ❤️ by <a href="https://github.com/4ni1ak" target="_blank" style="color: var(--accent-blue); text-decoration: none;">@4ni1ak</a></p>
+            </div>
+        </div>
+    </div>
+    <div id="preview-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 id="modal-title">Görsel Önizleme</h3>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <img id="preview-image" src="" alt="GitHub Wrapped Preview">
+            </div>
+            <div class="modal-footer">
+                <button id="modal-download-btn" class="modal-btn secondary">İndir</button>
+                <button id="modal-share-btn" class="modal-btn primary">Panoya Kopyala & Paylaş</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/translations.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
