@@ -1,6 +1,13 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:alpine
+    container_name: git-wrap-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
   git-wrap:
     build: .
     container_name: git-wrap
@@ -9,7 +16,14 @@ services:
     environment:
       - FLASK_ENV=production
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     restart: unless-stopped
+    depends_on:
+      - redis
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - ./logs:/app/logs
     healthcheck:

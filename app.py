@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
+from flask_caching import Cache
 from github_api import GitHubAPI
 from analyzer import GitHubAnalyzer
 import os
@@ -7,6 +8,23 @@ import re
 
 app = Flask(__name__)
 CORS(app)
+
+# Redis Cache Konfigürasyonu
+redis_host = os.environ.get('REDIS_HOST', 'localhost')
+redis_port = os.environ.get('REDIS_PORT', 6379)
+
+cache_config = {
+    "CACHE_TYPE": "RedisCache",
+    "CACHE_DEFAULT_TIMEOUT": 3600,  # 1 saat
+    "CACHE_REDIS_HOST": redis_host,
+    "CACHE_REDIS_PORT": redis_port
+}
+
+app.config.from_mapping(cache_config)
+cache = Cache(app)
+
+# Cache süreleri
+CACHE_TIMEOUT_3_DAYS = 3 * 24 * 60 * 60  # 259,200 saniye (3 gün)
 
 # GitHub token (opsiyonel, rate limit için)
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
@@ -32,19 +50,54 @@ def analyze():
         
         if not username:
             return jsonify({'error': 'Geçersiz kullanıcı adı veya GitHub URL'}), 400
-        
+
         # GitHub API başlat
         api = GitHubAPI(token=GITHUB_TOKEN)
         
-        # Token kontrolü - GraphQL için gerekli
+        # Token kontrolü
         if not GITHUB_TOKEN:
             print("WARNING: No GitHub token provided. Private contributions will not be included.")
-            print("Set GITHUB_TOKEN environment variable to include private repository contributions.")
         
         # Kullanıcı kontrolü
-        user = api.get_user(username)
+        try:
+            user = api.get_user(username)
+        except Exception as e:
+            return jsonify({'error': str(e)}), 503
+
         if not user:
             return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
+
+        # AKILLI CACHE KONTROLÜ (Smart Freshness Check)
+        # Kullanıcının son aktivite zamanını (Event) versiyon olarak kullanacağız.
+        latest_activity_date = None
+        try:
+            # Sadece son 1 aktiviteyi çek (Hızlı kontrol)
+            events = api.get_user_events(username, page=1, per_page=1)
+            if events and len(events) > 0:
+                latest_activity_date = events[0].get('created_at')
+        except:
+            pass # Event çekilemezse (örn: private profil) versiyon kontrolünü atla
+
+        # Cache anahtarı
+        cache_key = f"analysis_{username.lower()}_{year}"
+        cached_result = cache.get(cache_key)
+        
+        cache_hit = False
+        if cached_result:
+            cached_version = cached_result.get('data_version')
+            
+            # Eğer son aktivite tarihi varsa ve cache'teki ile aynıysa -> GÜNCEL
+            # Eğer son aktivite tarihi yoksa (çekilemediyse) -> CACHE KULLAN (Varsayılan)
+            if latest_activity_date and cached_version != latest_activity_date:
+                print(f"🔄 Cache outdated for {username}. New activity detected ({latest_activity_date}). Refreshing...")
+            else:
+                print(f"⚡ Cache hit for {username} ({year}). Resetting 3-day timer.")
+                # SÜREYİ UZAT: Veri kullanıldığı için 3 günlük süreyi baştan başlatıyoruz
+                cache.set(cache_key, cached_result, timeout=CACHE_TIMEOUT_3_DAYS)
+                return jsonify(cached_result), 200
+        
+        # cache_hit değişkeni kaldırıldı, doğrudan kontrol ediliyor
+        print(f"🔍 Starting analysis for {username} ({year})...")
         
         # Repository'leri çek
         repos = api.get_user_repos(username)
@@ -75,8 +128,15 @@ def analyze():
             'created_at': user.get('created_at', '')
         }
         
-        # Token bilgisi ekle
+        # Token bilgisi ve Versiyon Ekle
         result['has_token'] = GITHUB_TOKEN is not None
+        result['from_cache'] = False
+        result['data_version'] = latest_activity_date # Versiyonu kaydet
+        
+        # Sonucu Cache'e kaydet (3 GÜN)
+        cache_data = result.copy()
+        cache_data['from_cache'] = True
+        cache.set(cache_key, cache_data, timeout=CACHE_TIMEOUT_3_DAYS)
         
         return jsonify(result), 200
     

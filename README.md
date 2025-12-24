@@ -24,6 +24,7 @@ A modern web application that generates a Spotify Wrapped-style year-in-review f
 ### Backend
 - **Python 3.11**: Core programming language.
 - **Flask 3.0**: Lightweight WSGI web application framework.
+- **Redis**: High-performance in-memory data store for caching analysis results.
 - **GitHub GraphQL API**: For fetching precise contribution data (including private repos) efficiently.
 - **GitHub REST API**: For fetching public repository metadata.
 - **Gunicorn**: Production-grade WSGI HTTP server.
@@ -34,8 +35,17 @@ A modern web application that generates a Spotify Wrapped-style year-in-review f
 - **Canvas API**: For generating the shareable image directly in the browser.
 
 ### DevOps & Infrastructure
-- **Docker & Docker Compose**: Containerization for easy deployment and consistency.
+- **Docker & Docker Compose**: Containerization for easy deployment (App + Redis).
 - **GitHub Actions**: CI/CD pipeline for automated testing and building.
+
+## ⚡ Performance & Optimization
+
+We have engineered Git-Wrap to handle massive GitHub profiles (like Linus Torvalds) and high traffic efficiently:
+
+*   **🚀 Smart Redis Caching:** Analysis results are cached for **3 days** (sliding window). If a user is queried again, the timer resets, keeping popular profiles instantly available.
+*   **🧠 Intelligent Freshness Check:** The system automatically checks the user's latest activity event. If a new commit/event is detected since the last cache, the cache is invalidated and fresh data is fetched immediately.
+*   **🛡️ Robust API Handling:** Built-in retry mechanisms and DNS failover (Google DNS) ensure stability even during temporary network glitches.
+*   **📦 Full Scale Analysis:** Optimized to process **100% of repositories** without timeouts, regardless of the profile size.
 
 ## 🚀 Quick Start
 
@@ -54,6 +64,7 @@ A modern web application that generates a Spotify Wrapped-style year-in-review f
     *Optional:* Add your `GITHUB_TOKEN` in `.env` to include private repository stats.
 
 3.  **Run with Docker Compose:**
+    This will start both the Flask application and the Redis service.
     ```bash
     docker-compose up -d
     ```

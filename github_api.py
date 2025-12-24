@@ -16,38 +16,65 @@ class GitHubAPI:
         self.session.headers.update(self.headers)
     
     def _make_request(self, url, params=None):
-        """API isteği yapar ve rate limit kontrolü yapar"""
-        try:
-            response = self.session.get(url, params=params, timeout=10)
-            
-            # Rate limit kontrolü
-            remaining = response.headers.get('X-RateLimit-Remaining')
-            if remaining and int(remaining) < 10:
-                reset_time = int(response.headers.get('X-RateLimit-Reset', 0))
-                wait_time = max(0, reset_time - time.time())
-                if wait_time > 0:
-                    print(f"Rate limit approaching, waiting {wait_time} seconds...")
-                    time.sleep(wait_time)
-            
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"API Error: {str(e)}")
-            return None
+        """API isteği yapar, rate limit kontrolü yapar ve bağlantı hatalarını tekrar dener"""
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.session.get(url, params=params, timeout=10)
+                
+                # Rate limit kontrolü
+                remaining = response.headers.get('X-RateLimit-Remaining')
+                if remaining and int(remaining) < 10:
+                    reset_time = int(response.headers.get('X-RateLimit-Reset', 0))
+                    wait_time = max(0, reset_time - time.time())
+                    if wait_time > 0:
+                        print(f"Rate limit approaching, waiting {wait_time} seconds...")
+                        time.sleep(wait_time)
+                
+                response.raise_for_status()
+                return response.json()
+                
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                print(f"⚠️  Connection warning (Attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    print(f"❌ API Connection Error after {max_retries} attempts.")
+                    raise Exception("GitHub sunucularına bağlanılamıyor. Lütfen internet bağlantınızı kontrol edip tekrar deneyin.")
+            except requests.exceptions.RequestException as e:
+                print(f"API Error: {str(e)}")
+                return None
+        return None
     
     def _make_graphql_request(self, query):
         """GraphQL API isteği yapar"""
-        try:
-            response = self.session.post(
-                self.graphql_url,
-                json={"query": query},
-                timeout=15
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"GraphQL API Error: {str(e)}")
-            return None
+        max_retries = 3
+        retry_delay = 2
+
+        for attempt in range(max_retries):
+            try:
+                response = self.session.post(
+                    self.graphql_url,
+                    json={"query": query},
+                    timeout=15
+                )
+                response.raise_for_status()
+                return response.json()
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                print(f"⚠️  GraphQL Connection warning (Attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    # GraphQL hatası kritik olmayabilir, REST fallback var.
+                    # Bu yüzden Exception fırlatmak yerine None dönüyoruz, ama logluyoruz.
+                    print(f"❌ GraphQL Error after {max_retries} attempts.")
+                    return None
+            except requests.exceptions.RequestException as e:
+                print(f"GraphQL API Error: {str(e)}")
+                return None
+        return None
     
     def get_user(self, username):
         """Kullanıcı bilgilerini çeker"""
@@ -155,10 +182,10 @@ class GitHubAPI:
         url = f"{self.base_url}/repos/{owner}/{repo}/languages"
         return self._make_request(url)
     
-    def get_user_events(self, username, page=1):
+    def get_user_events(self, username, page=1, per_page=100):
         """Kullanıcının event'lerini çeker"""
         url = f"{self.base_url}/users/{username}/events"
-        params = {"per_page": 100, "page": page}
+        params = {"per_page": per_page, "page": page}
         return self._make_request(url, params)
     
     def get_contributions_collection(self, username, from_date, to_date):
