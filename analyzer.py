@@ -153,11 +153,22 @@ class GitHubAnalyzer:
         forked_repos = []
         total_merges = 0
         
+        
+        # En aktif repoları önce işlemek için sıralamayı koruyoruz.
+        sorted_repos = sorted(
+            repo_map.items(), 
+            key=lambda x: x[1]['commits'] + x[1]['prs'], 
+            reverse=True
+        )
+        
+        # Tüm repoları işle (Limit kaldırıldı)
+        repos_to_process = sorted_repos
+        print(f"  ⚡ Processing ALL {len(repos_to_process)} repositories (This may take a while for large profiles)...")
+        
         processed_count = 0
-        for repo_key, repo_data in list(repo_map.items()):  # list() to avoid modification during iteration
+        for repo_key, repo_data in repos_to_process:
             processed_count += 1
-            if processed_count % 5 == 0:
-                print(f"  📊 Processing {processed_count}/{len(repo_map)} repos...")
+            print(f"  📊 Processing {processed_count}/{len(repos_to_process)}: {repo_key}")
             
             repo_owner = repo_data['owner']
             repo_name = repo_data['name']

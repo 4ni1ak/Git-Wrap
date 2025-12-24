@@ -23,4 +23,4 @@ ENV FLASK_APP=app.py
 ENV PYTHONUNBUFFERED=1
 
 # Uygulama başlatma
-CMD ["gunicorn", "--bind", "0.0.0.0:3020", "--workers", "4", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:3020", "--workers", "4", "--timeout", "600", "app:app"]
