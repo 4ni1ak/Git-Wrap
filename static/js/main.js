@@ -645,24 +645,60 @@ function animateNumber(elementId, targetValue) {
 function displayTopRepos(topRepos) {
     const container = document.getElementById('top-repos-container');
     container.innerHTML = '';
-    const repos = [
-        { title: 'En Çok Commit', data: topRepos.most_commits, key: 'count', unit: 'commit' },
-        { title: 'En Çok PR', data: topRepos.most_prs, key: 'count', unit: 'PR' },
-        { title: 'En Çok Değişiklik', data: topRepos.most_changes, key: 'changes', unit: 'değişiklik' },
-        { title: 'En Uzun Katkı', data: topRepos.longest_contribution, key: 'days', unit: 'gün' }
-    ];
+    
+    // Repoları isme göre grupla
+    const repoMap = new Map();
+
+    // Veri ekleme yardımcı fonksiyonu
+    const addRepoData = (categoryData, title, unit, valueKey) => {
+        if (!categoryData || !categoryData.name) return;
+
+        const name = categoryData.name;
+        if (!repoMap.has(name)) {
+            repoMap.set(name, {
+                url: categoryData.url,
+                badges: [],
+                stats: []
+            });
+        }
+        
+        const repo = repoMap.get(name);
+        // Rozet ekle (Örn: En Çok Commit)
+        repo.badges.push(title);
+        
+        // İstatistik ekle (Örn: 82 commit)
+        const val = categoryData[valueKey] || 0;
+        repo.stats.push(`<strong>${val.toLocaleString()}</strong> ${unit}`);
+    };
+
+    // Kategorileri işle
+    addRepoData(topRepos.most_commits, 'En Çok Commit', 'commit', 'count');
+    addRepoData(topRepos.most_prs, 'En Çok PR', 'PR', 'count');
+    addRepoData(topRepos.most_merges, 'En Çok Merge', 'merge', 'merges');
+    addRepoData(topRepos.longest_contribution, 'En Uzun Katkı', 'gün', 'days');
     if (topRepos.most_starred) {
-        repos.push({ title: 'En Çok Star', data: topRepos.most_starred, key: 'stars', unit: 'star' });
+        addRepoData(topRepos.most_starred, 'En Çok Star', 'star', 'stars');
     }
-    repos.forEach(repo => {
+
+    // Kartları oluştur
+    repoMap.forEach((data, name) => {
         const card = document.createElement('div');
         card.className = 'repo-card';
+        
+        // Rozetleri yan yana diz
+        const badgesHtml = data.badges.map(b => `<span class="repo-badge" style="margin-right: 5px; margin-bottom: 5px; display: inline-block;">${b}</span>`).join('');
+        
+        // İstatistikleri alt alta diz
+        const statsHtml = data.stats.map(s => `<p class="repo-stat" style="margin: 5px 0;">${s}</p>`).join('');
+
         card.innerHTML = `
-            <div class="repo-header">
-                <a href="${repo.data.url}" target="_blank" class="repo-name">${repo.data.name}</a>
-                <span class="repo-badge">${repo.title}</span>
+            <div class="repo-header" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+                <a href="${data.url}" target="_blank" class="repo-name" style="font-size: 1.2em;">${name}</a>
+                <div class="repo-badges-container">${badgesHtml}</div>
             </div>
-            <p class="repo-stat"><strong>${repo.data[repo.key].toLocaleString()}</strong> ${repo.unit}</p>
+            <div class="repo-stats-container" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+                ${statsHtml}
+            </div>
         `;
         container.appendChild(card);
     });

@@ -463,7 +463,18 @@ class GitHubAnalyzer:
         
         most_commits = max(repos_list, key=lambda x: x['commits'])
         most_prs = max(repos_list, key=lambda x: x['prs'])
-        most_changes = max(repos_list, key=lambda x: x.get('changes', 0))
+        
+        # Merge sayısı 0'dan büyükse hesapla (Değişiklik yerine)
+        most_merges_repo = max(repos_list, key=lambda x: x.get('merges', 0))
+        most_merges = None
+        if most_merges_repo.get('merges', 0) > 0:
+            most_merges = {
+                'name': most_merges_repo['name'],
+                'merges': most_merges_repo.get('merges', 0),
+                'url': most_merges_repo['url'],
+                'is_private': most_merges_repo.get('is_private', False)
+            }
+            
         longest_contribution = max(repos_list, key=lambda x: x.get('contribution_days', 0))
         
         result = {
@@ -479,14 +490,6 @@ class GitHubAnalyzer:
                 'url': most_prs['url'],
                 'is_private': most_prs.get('is_private', False)
             },
-            'most_changes': {
-                'name': most_changes['name'],
-                'changes': most_changes.get('changes', 0),
-                'additions': most_changes.get('additions', 0),
-                'deletions': most_changes.get('deletions', 0),
-                'url': most_changes['url'],
-                'is_private': most_changes.get('is_private', False)
-            },
             'longest_contribution': {
                 'name': longest_contribution['name'],
                 'days': longest_contribution.get('contribution_days', 0),
@@ -495,6 +498,10 @@ class GitHubAnalyzer:
                 'is_private': longest_contribution.get('is_private', False)
             }
         }
+        
+        # Eğer merge verisi varsa ekle
+        if most_merges:
+            result['most_merges'] = most_merges
         
         # En çok star alan
         own_repos = [r for r in repos_list if r['is_own'] and r.get('stars', 0) > 0]
