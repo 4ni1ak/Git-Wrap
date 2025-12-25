@@ -29,6 +29,14 @@ CACHE_TIMEOUT_3_DAYS = 3 * 24 * 60 * 60  # 259,200 saniye (3 gün)
 # GitHub token (opsiyonel, rate limit için)
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
 
+import logging
+
+# Logger konfigürasyonu (Gunicorn ile uyumlu olması için)
+if __name__ != '__main__':
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
+
 @app.route('/')
 def index():
     """Ana sayfa"""
@@ -56,7 +64,7 @@ def analyze():
         
         # Token kontrolü
         if not GITHUB_TOKEN:
-            print("WARNING: No GitHub token provided. Private contributions will not be included.")
+            app.logger.warning("No GitHub token provided. Private contributions will not be included.")
         
         # Kullanıcı kontrolü
         try:
@@ -71,33 +79,27 @@ def analyze():
         # Kullanıcının son aktivite zamanını (Event) versiyon olarak kullanacağız.
         latest_activity_date = None
         try:
-            # Sadece son 1 aktiviteyi çek (Hızlı kontrol)
             events = api.get_user_events(username, page=1, per_page=1)
             if events and len(events) > 0:
                 latest_activity_date = events[0].get('created_at')
         except:
-            pass # Event çekilemezse (örn: private profil) versiyon kontrolünü atla
+            pass
 
         # Cache anahtarı
         cache_key = f"analysis_{username.lower()}_{year}"
         cached_result = cache.get(cache_key)
         
-        cache_hit = False
         if cached_result:
             cached_version = cached_result.get('data_version')
             
-            # Eğer son aktivite tarihi varsa ve cache'teki ile aynıysa -> GÜNCEL
-            # Eğer son aktivite tarihi yoksa (çekilemediyse) -> CACHE KULLAN (Varsayılan)
             if latest_activity_date and cached_version != latest_activity_date:
-                print(f"🔄 Cache outdated for {username}. New activity detected ({latest_activity_date}). Refreshing...")
+                app.logger.info(f"🔄 Cache outdated for {username}. New activity detected ({latest_activity_date}). Refreshing...")
             else:
-                print(f"⚡ Cache hit for {username} ({year}). Resetting 3-day timer.")
-                # SÜREYİ UZAT: Veri kullanıldığı için 3 günlük süreyi baştan başlatıyoruz
+                app.logger.info(f"⚡ Cache hit for {username} ({year}). Resetting 3-day timer.")
                 cache.set(cache_key, cached_result, timeout=CACHE_TIMEOUT_3_DAYS)
                 return jsonify(cached_result), 200
         
-        # cache_hit değişkeni kaldırıldı, doğrudan kontrol ediliyor
-        print(f"🔍 Starting analysis for {username} ({year})...")
+        app.logger.info(f"🔍 Starting analysis for {username} ({year})...")
         
         # Repository'leri çek
         repos = api.get_user_repos(username)
@@ -131,7 +133,7 @@ def analyze():
         # Token bilgisi ve Versiyon Ekle
         result['has_token'] = GITHUB_TOKEN is not None
         result['from_cache'] = False
-        result['data_version'] = latest_activity_date # Versiyonu kaydet
+        result['data_version'] = latest_activity_date
         
         # Sonucu Cache'e kaydet (3 GÜN)
         cache_data = result.copy()
@@ -143,7 +145,7 @@ def analyze():
     except ValueError as e:
         return jsonify({'error': 'Geçersiz yıl değeri'}), 400
     except Exception as e:
-        print(f"Error: {str(e)}")
+        app.logger.error(f"Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Bir hata oluştu: {str(e)}'}), 500
