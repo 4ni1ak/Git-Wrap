@@ -37,14 +37,100 @@ if __name__ != '__main__':
     app.logger.handlers = gunicorn_logger.handlers
     app.logger.setLevel(gunicorn_logger.level)
 
+import threading
+import uuid
+import time
+
+# Basit In-Memory Task Queue
+tasks = {}
+
 @app.route('/')
 def index():
     """Ana sayfa"""
     return render_template('index.html')
 
+def process_analysis(username, year, task_id):
+    """Arka planda çalışan analiz işlemi"""
+    with app.app_context():
+        try:
+            # GitHub API başlat
+            api = GitHubAPI(token=GITHUB_TOKEN)
+            
+            # Token kontrolü
+            if not GITHUB_TOKEN:
+                app.logger.warning("No GitHub token provided.")
+            
+            # Kullanıcı kontrolü
+            user = api.get_user(username)
+            if not user:
+                tasks[task_id] = {'status': 'error', 'message': 'Kullanıcı bulunamadı'}
+                return
+
+            # AKILLI CACHE KONTROLÜ
+            latest_activity_date = None
+            try:
+                events = api.get_user_events(username, page=1, per_page=1)
+                if events: latest_activity_date = events[0].get('created_at')
+            except: pass
+
+            cache_key = f"analysis_{username.lower()}_{year}"
+            cached_result = cache.get(cache_key)
+            
+            # Cache Check
+            if cached_result:
+                cached_version = cached_result.get('data_version')
+                if latest_activity_date and cached_version != latest_activity_date:
+                    app.logger.info(f"🔄 Cache outdated for {username}.")
+                else:
+                    app.logger.info(f"⚡ Cache hit for {username}.")
+                    cache.set(cache_key, cached_result, timeout=CACHE_TIMEOUT_3_DAYS)
+                    tasks[task_id] = {'status': 'completed', 'data': cached_result}
+                    return
+
+            app.logger.info(f"🔍 Starting analysis for {username}...")
+            
+            repos = api.get_user_repos(username)
+            if not repos:
+                tasks[task_id] = {'status': 'error', 'message': 'Repository bulunamadı'}
+                return
+            
+            analyzer = GitHubAnalyzer(year=year)
+            result = analyzer.analyze_user_data(username, repos, api)
+            
+            # Aktivite kontrolü
+            total_contribs = result['stats'].get('total_contributions', 0)
+            if total_contribs == 0:
+                tasks[task_id] = {'status': 'error', 'message': f'{year} yılında aktivite yok'}
+                return
+            
+            # User Info Ekle
+            result['user_info'] = {
+                'name': user.get('name', username),
+                'avatar_url': user.get('avatar_url', ''),
+                'bio': user.get('bio', ''),
+                'public_repos': user.get('public_repos', 0),
+                'followers': user.get('followers', 0),
+                'following': user.get('following', 0),
+                'created_at': user.get('created_at', '')
+            }
+            result['has_token'] = GITHUB_TOKEN is not None
+            result['from_cache'] = False
+            result['data_version'] = latest_activity_date
+            
+            # Cache Kaydet
+            cache_data = result.copy()
+            cache_data['from_cache'] = True
+            cache.set(cache_key, cache_data, timeout=CACHE_TIMEOUT_3_DAYS)
+            
+            tasks[task_id] = {'status': 'completed', 'data': result}
+            
+        except Exception as e:
+            app.logger.error(f"Analysis failed: {str(e)}")
+            tasks[task_id] = {'status': 'error', 'message': str(e)}
+
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
-    """Kullanıcı GitHub verilerini analiz eder"""
+    """Analiz işlemini başlatır (Asenkron)"""
     try:
         data = request.get_json()
         username_input = data.get('username', '').strip()
@@ -53,102 +139,43 @@ def analyze():
         if not username_input:
             return jsonify({'error': 'Kullanıcı adı gerekli'}), 400
         
-        # URL'den kullanıcı adını çıkar
         username = extract_username(username_input)
-        
         if not username:
-            return jsonify({'error': 'Geçersiz kullanıcı adı veya GitHub URL'}), 400
+            return jsonify({'error': 'Geçersiz kullanıcı adı'}), 400
 
-        # GitHub API başlat
-        api = GitHubAPI(token=GITHUB_TOKEN)
+        task_id = f"{username}_{year}"
         
-        # Token kontrolü
-        if not GITHUB_TOKEN:
-            app.logger.warning("No GitHub token provided. Private contributions will not be included.")
+        # Eğer işlem zaten devam ediyorsa veya bitmişse
+        if task_id in tasks:
+            status = tasks[task_id]['status']
+            if status == 'completed':
+                return jsonify(tasks[task_id]['data']), 200
+            elif status == 'processing':
+                return jsonify({'status': 'processing', 'task_id': task_id}), 202
         
-        # Kullanıcı kontrolü
-        try:
-            user = api.get_user(username)
-        except Exception as e:
-            return jsonify({'error': str(e)}), 503
-
-        if not user:
-            return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
-
-        # AKILLI CACHE KONTROLÜ (Smart Freshness Check)
-        # Kullanıcının son aktivite zamanını (Event) versiyon olarak kullanacağız.
-        latest_activity_date = None
-        try:
-            events = api.get_user_events(username, page=1, per_page=1)
-            if events and len(events) > 0:
-                latest_activity_date = events[0].get('created_at')
-        except:
-            pass
-
-        # Cache anahtarı
-        cache_key = f"analysis_{username.lower()}_{year}"
-        cached_result = cache.get(cache_key)
+        # Yeni işlem başlat
+        tasks[task_id] = {'status': 'processing'}
+        thread = threading.Thread(target=process_analysis, args=(username, year, task_id))
+        thread.start()
         
-        if cached_result:
-            cached_version = cached_result.get('data_version')
-            
-            if latest_activity_date and cached_version != latest_activity_date:
-                app.logger.info(f"🔄 Cache outdated for {username}. New activity detected ({latest_activity_date}). Refreshing...")
-            else:
-                app.logger.info(f"⚡ Cache hit for {username} ({year}). Resetting 3-day timer.")
-                cache.set(cache_key, cached_result, timeout=CACHE_TIMEOUT_3_DAYS)
-                return jsonify(cached_result), 200
-        
-        app.logger.info(f"🔍 Starting analysis for {username} ({year})...")
-        
-        # Repository'leri çek
-        repos = api.get_user_repos(username)
-        if not repos:
-            return jsonify({'error': 'Repository bulunamadı'}), 404
-        
-        # Analiz yap
-        analyzer = GitHubAnalyzer(year=year)
-        result = analyzer.analyze_user_data(username, repos, api)
-        
-        # Aktivite kontrolü
-        total_contribs = result['stats'].get('total_contributions', result['stats'].get('total_commits', 0))
-        if total_contribs == 0:
-            return jsonify({
-                'error': f'{year} yılında hiç aktivite bulunamadı',
-                'username': username,
-                'year': year
-            }), 404
-        
-        # Kullanıcı bilgilerini ekle
-        result['user_info'] = {
-            'name': user.get('name', username),
-            'avatar_url': user.get('avatar_url', ''),
-            'bio': user.get('bio', ''),
-            'public_repos': user.get('public_repos', 0),
-            'followers': user.get('followers', 0),
-            'following': user.get('following', 0),
-            'created_at': user.get('created_at', '')
-        }
-        
-        # Token bilgisi ve Versiyon Ekle
-        result['has_token'] = GITHUB_TOKEN is not None
-        result['from_cache'] = False
-        result['data_version'] = latest_activity_date
-        
-        # Sonucu Cache'e kaydet (3 GÜN)
-        cache_data = result.copy()
-        cache_data['from_cache'] = True
-        cache.set(cache_key, cache_data, timeout=CACHE_TIMEOUT_3_DAYS)
-        
-        return jsonify(result), 200
+        return jsonify({'status': 'processing', 'task_id': task_id}), 202
     
-    except ValueError as e:
-        return jsonify({'error': 'Geçersiz yıl değeri'}), 400
     except Exception as e:
-        app.logger.error(f"Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Bir hata oluştu: {str(e)}'}), 500
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/status/<task_id>', methods=['GET'])
+def check_status(task_id):
+    """İşlem durumunu kontrol eder"""
+    task = tasks.get(task_id)
+    if not task:
+        return jsonify({'status': 'not_found'}), 404
+    
+    if task['status'] == 'completed':
+        return jsonify(task['data']), 200
+    elif task['status'] == 'error':
+        return jsonify({'error': task['message']}), 500
+    else:
+        return jsonify({'status': 'processing'}), 202
 
 @app.route('/api/rate-limit', methods=['GET'])
 def rate_limit():

@@ -45,11 +45,44 @@ async function handleAnalyze() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, year: 2025 })
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Hata oluştu');
         
-        userData = data;
-        displayResults(data);
+        const data = await response.json();
+        
+        if (response.status === 202) {
+            // İşlem arka planda başladı, polling yap
+            pollStatus(data.task_id);
+        } else if (response.ok) {
+            // İşlem zaten bitmiş veya cache'ten gelmiş
+            userData = data;
+            displayResults(data);
+        } else {
+            throw new Error(data.error || 'Hata oluştu');
+        }
+    } catch (error) {
+        hideLoading();
+        showError(error.message);
+    }
+}
+
+async function pollStatus(taskId) {
+    const interval = 3000; // 3 saniye
+    
+    try {
+        const response = await fetch(`/api/status/${taskId}`);
+        
+        if (response.status === 202) {
+            // Hala işlemde, tekrarla
+            setTimeout(() => pollStatus(taskId), interval);
+        } else if (response.ok) {
+            // Bitti
+            const data = await response.json();
+            userData = data;
+            displayResults(data);
+        } else {
+            // Hata
+            const data = await response.json();
+            throw new Error(data.error || 'İşlem başarısız oldu');
+        }
     } catch (error) {
         hideLoading();
         showError(error.message);
