@@ -37,21 +37,55 @@ if __name__ != '__main__':
     app.logger.handlers = gunicorn_logger.handlers
     app.logger.setLevel(gunicorn_logger.level)
 
+from flask import Flask, render_template, request, jsonify
+from flask_cors import CORS
+from flask_caching import Cache
+from github_api import GitHubAPI
+from analyzer import GitHubAnalyzer
+import os
+import re
+import logging
 import threading
 import uuid
 import time
 
-# Basit In-Memory Task Queue
-tasks = {}
+app = Flask(__name__)
+CORS(app)
+
+# Redis Konfigürasyonu
+redis_host = os.environ.get('REDIS_HOST', 'redis')
+redis_port = os.environ.get('REDIS_PORT', 6379)
+
+# Flask-Caching
+cache_config = {
+    "CACHE_TYPE": "RedisCache",
+    "CACHE_DEFAULT_TIMEOUT": 3600,
+    "CACHE_REDIS_HOST": redis_host,
+    "CACHE_REDIS_PORT": redis_port
+}
+app.config.from_mapping(cache_config)
+cache = Cache(app)
+
+# Cache süreleri
+CACHE_TIMEOUT_3_DAYS = 3 * 24 * 60 * 60
+
+# GitHub token
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
+
+# Logger konfigürasyonu
+if __name__ != '__main__':
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
 
 @app.route('/')
 def index():
-    """Ana sayfa"""
     return render_template('index.html')
 
 def process_analysis(username, year, task_id):
-    """Arka planda çalışan analiz işlemi"""
+    """Arka planda çalışan analiz işlemi (Threading)"""
     with app.app_context():
+        task_key = f"task_{task_id}"
         try:
             # GitHub API başlat
             api = GitHubAPI(token=GITHUB_TOKEN)
@@ -63,10 +97,10 @@ def process_analysis(username, year, task_id):
             # Kullanıcı kontrolü
             user = api.get_user(username)
             if not user:
-                tasks[task_id] = {'status': 'error', 'message': 'Kullanıcı bulunamadı'}
+                cache.set(task_key, {'status': 'error', 'message': 'Kullanıcı bulunamadı'}, timeout=3600)
                 return
 
-            # AKILLI CACHE KONTROLÜ
+            # Cache Kontrolü
             latest_activity_date = None
             try:
                 events = api.get_user_events(username, page=1, per_page=1)
@@ -76,7 +110,6 @@ def process_analysis(username, year, task_id):
             cache_key = f"analysis_{username.lower()}_{year}"
             cached_result = cache.get(cache_key)
             
-            # Cache Check
             if cached_result:
                 cached_version = cached_result.get('data_version')
                 if latest_activity_date and cached_version != latest_activity_date:
@@ -84,26 +117,24 @@ def process_analysis(username, year, task_id):
                 else:
                     app.logger.info(f"⚡ Cache hit for {username}.")
                     cache.set(cache_key, cached_result, timeout=CACHE_TIMEOUT_3_DAYS)
-                    tasks[task_id] = {'status': 'completed', 'data': cached_result}
+                    cache.set(task_key, {'status': 'completed', 'data': cached_result}, timeout=3600)
                     return
 
             app.logger.info(f"🔍 Starting analysis for {username}...")
             
             repos = api.get_user_repos(username)
             if not repos:
-                tasks[task_id] = {'status': 'error', 'message': 'Repository bulunamadı'}
+                cache.set(task_key, {'status': 'error', 'message': 'Repository bulunamadı'}, timeout=3600)
                 return
             
             analyzer = GitHubAnalyzer(year=year)
             result = analyzer.analyze_user_data(username, repos, api)
             
-            # Aktivite kontrolü
             total_contribs = result['stats'].get('total_contributions', 0)
             if total_contribs == 0:
-                tasks[task_id] = {'status': 'error', 'message': f'{year} yılında aktivite yok'}
+                cache.set(task_key, {'status': 'error', 'message': f'{year} yılında aktivite yok'}, timeout=3600)
                 return
             
-            # User Info Ekle
             result['user_info'] = {
                 'name': user.get('name', username),
                 'avatar_url': user.get('avatar_url', ''),
@@ -117,20 +148,21 @@ def process_analysis(username, year, task_id):
             result['from_cache'] = False
             result['data_version'] = latest_activity_date
             
-            # Cache Kaydet
+            # Cache'e kaydet
             cache_data = result.copy()
             cache_data['from_cache'] = True
             cache.set(cache_key, cache_data, timeout=CACHE_TIMEOUT_3_DAYS)
             
-            tasks[task_id] = {'status': 'completed', 'data': result}
+            # Task Durumunu Güncelle
+            cache.set(task_key, {'status': 'completed', 'data': result}, timeout=3600)
             
         except Exception as e:
             app.logger.error(f"Analysis failed: {str(e)}")
-            tasks[task_id] = {'status': 'error', 'message': str(e)}
+            cache.set(task_key, {'status': 'error', 'message': str(e)}, timeout=3600)
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
-    """Analiz işlemini başlatır (Asenkron)"""
+    """Analiz işlemini başlatır (Threading + Redis)"""
     try:
         data = request.get_json()
         username_input = data.get('username', '').strip()
@@ -144,17 +176,21 @@ def analyze():
             return jsonify({'error': 'Geçersiz kullanıcı adı'}), 400
 
         task_id = f"{username}_{year}"
+        task_key = f"task_{task_id}"
         
-        # Eğer işlem zaten devam ediyorsa veya bitmişse
-        if task_id in tasks:
-            status = tasks[task_id]['status']
+        # Mevcut durumu Redis'ten kontrol et
+        existing_task = cache.get(task_key)
+        
+        if existing_task:
+            status = existing_task.get('status')
             if status == 'completed':
-                return jsonify(tasks[task_id]['data']), 200
+                return jsonify(existing_task['data']), 200
             elif status == 'processing':
                 return jsonify({'status': 'processing', 'task_id': task_id}), 202
         
-        # Yeni işlem başlat
-        tasks[task_id] = {'status': 'processing'}
+        # Yeni işlem başlat ve durumu Redis'e yaz
+        cache.set(task_key, {'status': 'processing'}, timeout=3600)
+        
         thread = threading.Thread(target=process_analysis, args=(username, year, task_id))
         thread.start()
         
@@ -165,17 +201,30 @@ def analyze():
 
 @app.route('/api/status/<task_id>', methods=['GET'])
 def check_status(task_id):
-    """İşlem durumunu kontrol eder"""
-    task = tasks.get(task_id)
+    """İşlem durumunu Redis üzerinden kontrol eder"""
+    task_key = f"task_{task_id}"
+    task = cache.get(task_key)
+    
     if not task:
         return jsonify({'status': 'not_found'}), 404
     
     if task['status'] == 'completed':
         return jsonify(task['data']), 200
     elif task['status'] == 'error':
-        return jsonify({'error': task['message']}), 500
+        return jsonify({'error': task.get('message', 'Bilinmeyen hata')}), 500
     else:
         return jsonify({'status': 'processing'}), 202
+
+def extract_username(input_string):
+    patterns = [r'github\.com/([a-zA-Z0-9_-]+)', r'^([a-zA-Z0-9_-]+)$']
+    for pattern in patterns:
+        match = re.search(pattern, input_string)
+        if match: return match.group(1)
+    return None
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 3020))
+    app.run(host='0.0.0.0', port=port)
 
 @app.route('/api/rate-limit', methods=['GET'])
 def rate_limit():
